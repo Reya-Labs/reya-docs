@@ -1,0 +1,3 @@
+# Signatures and Nonces
+
+Signatures are required to safely execute orders in the name of your wallet. The API endpoints for order management require a user signature that must be created on the client side using your private key. These signatures are validated on-chain for all order details you specified to ensure no unintended action is executed on your account. Internal nonces for your wallet address, tracked in the smart contracts, are used to prevent replay attacks. Creating your own signatures and nonces can be a bit tricky, and a single detail being wrong will result in an "invalid signature" error which are notably hard to debug. Our recommendation is to check our python SDK's code to fully understand every detail on how signatures need to be produced.
