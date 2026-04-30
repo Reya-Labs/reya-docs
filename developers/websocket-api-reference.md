@@ -771,7 +771,7 @@ Same as above - see `/v2/prices` channel for complete field definitions.
 
 #### `/v2/wallet/{address}/perpExecutions`
 
-**Purpose**: Real-time perpetual execution updates for a wallet
+**Purpose**: Real-time perpetual execution updates for a wallet test
 
 **Parameters**:
 
