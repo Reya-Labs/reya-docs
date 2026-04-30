@@ -9,3 +9,6 @@ Reya achieves this as **a novel trading-specific based Zk rollup on Ethereum.** 
 * Reliability: no single point of failure, with the rollup design having multiple rotating L2 nodes (unlike generation-1 rollups)
 
 The based-design also makes Reya synchronously composable with all of Ethereum L1 DeFi, unlocking novel use cases for traders and builders. No sidecar. No Alt-L1. Instead, a DEX enshrined into the Ethereum L1.
+
+
+TESTTEST
