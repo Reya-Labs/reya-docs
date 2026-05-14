@@ -122,11 +122,11 @@ or, on failure:
 {
   "type": "pong",
   "id": "probe-001",
-  "server_time_ms": 1747927089946
+  "serverTimeMs": 1747927089946
 }
 ```
 
-The server-emitted pong always carries `server_time_ms` (server wall-clock at pong emission, useful for clock-sync and RTT measurement); the client-emitted pong never does. See [Heartbeat Semantics](#heartbeat-semantics) for timeout behavior.
+The server-emitted pong always carries `serverTimeMs` (server wall-clock at pong emission, useful for clock-sync and RTT measurement); the client-emitted pong never does. See [Heartbeat Semantics](#heartbeat-semantics) for timeout behavior.
 
 ### Top-Level Error Envelope (Server → Client)
 
@@ -391,7 +391,7 @@ Every error envelope (both per-operation `{ok: false, error}` and top-level `err
 }
 ```
 
-The `error` field is one of the codes below. Per-operation responses use codes from the **Trade Handler** group (shared 1:1 with REST). Top-level `error` envelopes additionally use codes from the **Framing Layer** group; these only make sense for a streamed envelope protocol and never appear in REST responses.
+The `error` field is one of the codes below. Per-operation responses (`{ok: false, error}` on `createOrder` / `cancelOrder` / `cancelAll`) use codes from the **Trade Handler** group, shared 1:1 with REST. Top-level `error` envelopes use codes from the **Framing Layer** group exclusively; these only make sense for a streamed envelope protocol and never appear in REST responses.
 
 ### Trade Handler Codes (shared with REST)
 
@@ -455,7 +455,7 @@ These codes appear **only** in the top-level `error` envelope, never inside a pe
 
 </details>
 
-For the complete enumeration of `RequestErrorCode` (per-operation errors) and `WsExecRequestErrorCode` (top-level errors), see the [Error Catalog](#error-catalog) above.
+For the complete enumeration of `RequestErrorCode` (per-operation errors) and `WsExecErrorCode` (top-level errors), see the [Error Catalog](#error-catalog) above.
 
 ## Connection Management
 
@@ -463,7 +463,7 @@ For the complete enumeration of `RequestErrorCode` (per-operation errors) and `W
 
 The server sends a `ping` frame every 5 seconds. The client must reply with a `pong` frame within 5 seconds of receiving the ping. If the server observes no pong within `HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS` (10 seconds total) since the last successful pong, it closes the connection with WS close code `4002 HEARTBEAT_TIMEOUT`. Clients should treat `4002` as "reconnect", not "fatal".
 
-A client may also send a `ping` of its own at any time. The server replies with a pong containing `server_time_ms` (server wall-clock at emission, milliseconds since epoch). Useful for clock-sync and active RTT measurement.
+A client may also send a `ping` of its own at any time. The server replies with a pong containing `serverTimeMs` (server wall-clock at emission, milliseconds since epoch). Useful for clock-sync and active RTT measurement.
 
 ### Graceful Shutdown
 
