@@ -1088,7 +1088,7 @@ WebSocket connections drop for many reasons — network blips, server-side rolli
 
 Pseudocode:
 
-```
+```text
 activeSubscriptions = []   # tracked across reconnects
 backoffMs = 100
 

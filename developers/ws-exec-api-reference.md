@@ -485,7 +485,7 @@ Closing the WebSocket has **zero persistent side effects** on the order book —
 
 Pseudocode:
 
-```
+```text
 backoffMs = 100
 loop:
   try:
@@ -547,7 +547,7 @@ A worked end-to-end example is included in the [Reya Python SDK](https://github.
 
 Run with:
 
-```
+```bash
 poetry shell
 python -m examples.ws_exec.mvp
 ```
