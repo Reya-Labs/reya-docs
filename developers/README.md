@@ -31,4 +31,4 @@ For private endpoints that access user-specific data or perform actions on behal
 
 To ensure fair usage and optimal performance, the API implements rate limiting. For more information, see the [Rate Limits ](rest-api-reference/rate-limits.md)documentation.
 
-For real-time data needs, consider using our [WebSocket API](/broken/pages/SL6x5f1Ngf6GtXYAOL10) for streaming updates.
+For real-time data needs, consider using our [WebSocket Market Data API](websocket-api-reference.md) for streaming updates. To place and cancel orders over a persistent connection, see the [WebSocket Order Entry API](ws-exec-api-reference.md).

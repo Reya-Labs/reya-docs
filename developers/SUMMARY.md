@@ -14,6 +14,7 @@
     ```
   * [Rate Limits](rest-api-reference/rate-limits.md)
   * [Signatures and Nonces](rest-api-reference/signatures-and-nonces.md)
-* [WebSocket API Reference](websocket-api-reference.md)
+* [WebSocket Market Data API Reference](websocket-api-reference.md)
+* [WebSocket Order Entry API Reference](ws-exec-api-reference.md)
 * [Python SDK](https://github.com/Reya-Labs/reya-python-sdk)
 * [Smart Contract Withdrawals](smart-contract-withdrawals.md)

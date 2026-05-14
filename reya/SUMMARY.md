@@ -78,7 +78,6 @@
     ```
   * [Rate Limits](technical-docs/reya-dex-rest-api-v2/rate-limits.md)
   * [Signatures and Nonces](technical-docs/reya-dex-rest-api-v2/signatures-and-nonces.md)
-* [Reya DEX Websocket API V2](technical-docs/reya-dex-websocket-api-v2.md)
 * [Contract Functions](technical-docs/contract-functions/README.md)
   * [Core](technical-docs/contract-functions/core.md)
   * [Passive Perp Instrument](technical-docs/contract-functions/passive-perp-instrument.md)
