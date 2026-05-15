@@ -91,21 +91,9 @@ or, on failure:
 
 ### Heartbeat Envelopes
 
-#### Server Ping (Server → Client, every 5s)
+Server-side liveness is handled at the WebSocket protocol layer (RFC 6455 control-frame pings) — invisible to the application layer. Clients do not need to handle any JSON ping frames to stay connected. See [Heartbeat Semantics](#heartbeat-semantics).
 
-```json
-{
-  "type": "ping"
-}
-```
-
-#### Client Pong (Client → Server, reply to server ping)
-
-```json
-{
-  "type": "pong"
-}
-```
+The only application-level ping/pong is an *optional* client-initiated probe.
 
 #### Client Ping (Client → Server, optional liveness probe)
 
@@ -121,12 +109,11 @@ or, on failure:
 ```json
 {
   "type": "pong",
-  "id": "probe-001",
-  "serverTimeMs": 1747927089946
+  "id": "probe-001"
 }
 ```
 
-The server-emitted pong always carries `serverTimeMs` (server wall-clock at pong emission, useful for clock-sync and RTT measurement); the client-emitted pong never does. See [Heartbeat Semantics](#heartbeat-semantics) for timeout behavior.
+The server echoes the optional `id` back to the client. Useful for application-level RTT measurement or correlation.
 
 ### Top-Level Error Envelope (Server → Client)
 
@@ -376,9 +363,7 @@ The server emits a top-level `error` envelope when it cannot parse a request at 
 
 ### `ping` / `pong`
 
-**Purpose**: Heartbeat. Both client and server may initiate a ping; the receiver replies with a pong on the same connection. See [Heartbeat Semantics](#heartbeat-semantics) for timeout behavior and [Heartbeat Envelopes](#heartbeat-envelopes) for the wire shape.
-
-A client-initiated ping is **optional** — used for clock-sync or active RTT measurement. Server-initiated pings are mandatory: the client must reply within 5 seconds or the connection is closed with code `4002 HEARTBEAT_TIMEOUT`.
+**Purpose**: Optional client-initiated application-level liveness/RTT probe. The client sends `{type:"ping", id?}`; the server replies with `{type:"pong", id?}` echoing the optional `id`. See [Heartbeat Envelopes](#heartbeat-envelopes) for the wire shape and [Heartbeat Semantics](#heartbeat-semantics) for the connection-level liveness mechanism (which does not depend on this operation).
 
 ## Error Catalog
 
@@ -461,9 +446,11 @@ For the complete enumeration of `RequestErrorCode` (per-operation errors) and `W
 
 ### Heartbeat Semantics
 
-The server sends a `ping` frame every 5 seconds. The client must reply with a `pong` frame within 5 seconds of receiving the ping. If the server observes no pong within `HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS` (10 seconds total) since the last successful pong, it closes the connection with WS close code `4002 HEARTBEAT_TIMEOUT`. Clients should treat `4002` as "reconnect", not "fatal".
+The server uses WebSocket protocol-level pings (RFC 6455 control frames) for liveness detection, the same mechanism as the [Market Data WebSocket API](websocket-api-reference.md). Any standards-compliant client WebSocket library replies with control-frame pongs automatically — **no application-level code is required on the client**. If no inbound traffic is received within `idleTimeout` (120 seconds), the server closes the connection.
 
-A client may also send a `ping` of its own at any time. The server replies with a pong containing `serverTimeMs` (server wall-clock at emission, milliseconds since epoch). Useful for clock-sync and active RTT measurement.
+Clients sitting behind aggressive corporate firewalls or load balancers should configure their WebSocket library to send client→server protocol pings periodically (e.g. `ping_interval=20` in Python's `websocket-client`, or `setInterval(() => ws.ping(), 20_000)` in Node's `ws`) so intermediate hops see traffic. With `sendPings: true` on the server side, the server also pings each client periodically; most setups stay alive on the server pings alone.
+
+Clients may *optionally* send `{type:"ping", id?}` JSON to request an explicit application-level probe — the server replies with `{type:"pong", id?}` echoing the `id`. This is independent of the protocol-level heartbeat and useful only for RTT measurement or application-side correlation.
 
 ### Graceful Shutdown
 
@@ -526,7 +513,7 @@ The WebSocket Order Entry surface is functionally equivalent to the correspondin
 | Success / failure | HTTP `200` vs `400` / `500` | `ok: true` vs `ok: false` inside the frame |
 | Error body | `RequestError` | Same — embedded as `error` on `ok: false` |
 | Correlation | HTTP request/response pairing | Client-supplied `id` field |
-| Heartbeat | n/a (stateless) | Bidirectional ping/pong, 5s interval, 10s timeout |
+| Heartbeat | n/a (stateless) | RFC 6455 protocol-level pings + 120s `idleTimeout` (same as the Market Data WS) |
 | Auth | EIP-712 signature in body | Same EIP-712 signature in same body |
 | Idempotency | `clientOrderId` echoed | Same |
 | Connection | Per-request | Persistent, multiplexed |

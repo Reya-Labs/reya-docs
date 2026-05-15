@@ -94,23 +94,25 @@ All WebSocket messages follow a standardized envelope structure:
 * **channel**: Specific channel identifier
 * **data**: Channel-specific payload (object or array)
 
-### Heartbeat Messages
+### Heartbeat & Liveness
 
-#### Ping Message (Server → Client)
+The server uses WebSocket protocol-level pings (RFC 6455 control frames) for liveness detection. Any standards-compliant client WebSocket library replies with control-frame pongs automatically — **no application-level code is required on the client**. If no traffic is received within `idleTimeout` (120 seconds), the server closes the connection.
+
+Clients may *optionally* send an application-level JSON ping for round-trip checks or correlation:
 
 ```json
 {
   "type": "ping",
-  "timestamp": 1747927089946
+  "id": "probe-001"
 }
 ```
 
-#### Pong Message (Client → Server)
+The server replies with a pong echoing the optional `id`:
 
 ```json
 {
   "type": "pong",
-  "timestamp": 1747927089946
+  "id": "probe-001"
 }
 ```
 
@@ -1071,11 +1073,7 @@ The full set of `message` strings emitted by the server:
 
 ### Heartbeat Management
 
-The API implements a ping/pong heartbeat mechanism:
-
-1. **Server Ping**: Server sends periodic ping messages
-2. **Client Pong**: Client must respond with pong messages
-3. **Connection Health**: Failure to respond may result in disconnection
+The server uses RFC 6455 protocol-level pings (auto-handled by the client's WebSocket library) and closes the connection after `idleTimeout` (120s) of silence. See [Heartbeat & Liveness](#heartbeat--liveness) for the full description and the optional client-initiated JSON probe pattern.
 
 ### Reconnection Pattern
 
