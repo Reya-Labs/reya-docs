@@ -636,7 +636,7 @@ Same as above - see `/v2/prices` channel for complete field definitions.
 
 <summary><strong>Data Type - SpotExecutionBust</strong></summary>
 
-A bust is emitted when the matching engine matched two spot orders but the on-chain settlement attempt reverted (e.g. insufficient balance, signature staleness, market paused). The match is rolled back; both orders are released back to their owners' state.
+A bust is emitted when the matching engine matched two orders but the on-chain settlement attempt reverted (e.g. insufficient balance, signature staleness, market paused). The match is rolled back; both orders are released back to their owners' state. See [Trade Busts](trade-busts.md) for the full trade lifecycle, when busts happen, and how clients should handle them.
 
 * `symbol` (string): Trading symbol
 * `accountId` (integer): Account identifier of the taker side of the failed trade
