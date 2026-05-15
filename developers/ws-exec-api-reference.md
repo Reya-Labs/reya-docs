@@ -36,6 +36,8 @@ Authentication is **per-frame**: every order-bearing request carries an EIP-712 
 
 A consequence of per-frame authentication is that a single WebSocket connection can carry orders signed by **multiple different `signerWallet` values** — useful for market makers operating multiple subaccounts on one connection.
 
+**Rate limits are keyed off the signing wallet, not the connection.** Sending `createOrder` / `cancelOrder` / `cancelAll` over WebSocket Order Entry counts toward the same per-wallet bucket as sending the same operation over REST — choosing the transport doesn't change the limits. See [Rate Limits](rate-limits.md) for the full picture (default limits, tiers, open-order caps, and recommended client patterns).
+
 ## Message Envelope
 
 All WebSocket messages follow a standardized envelope structure with a `type` discriminator and a client-chosen `id` for correlation.
