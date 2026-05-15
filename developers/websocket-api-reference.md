@@ -1065,7 +1065,7 @@ The full set of `message` strings emitted by the server:
 | Message | When emitted | Client action |
 |---|---|---|
 | `Invalid JSON` | The frame body could not be parsed as JSON. | Fix the client serializer. |
-| `Invalid type` | The frame's `type` field is not one of `subscribe`, `unsubscribe`, `ping`, `pong`. | Verify the request `type`. |
+| `Invalid type` | The frame's `type` field is not one of `subscribe`, `unsubscribe`, `ping`. (`pong` is server-only — clients don't send JSON pong frames.) | Verify the request `type`. |
 | `Invalid channel name` | The subscribe / unsubscribe target does not match a known channel path or has malformed parameters (e.g. an invalid symbol or address). | Check the channel name against the [Channels Reference](#channels-reference) and the [Parameter Validation](#parameter-validation) rules. |
 | `Error while fetching snapshot from {channel}` | The server failed to compute the initial snapshot for a freshly-subscribed channel (typically a transient backend issue). The subscription is rolled back; the client may retry. | Retry the subscribe after a short backoff. If the problem persists, contact support with the channel name and timestamp. |
 

@@ -52,7 +52,7 @@ All WebSocket messages follow a standardized envelope structure with a `type` di
 
 #### Components
 
-* **type** (string, required): One of `createOrder`, `cancelOrder`, `cancelAll`, `ping`, `pong`.
+* **type** (string, required): One of `createOrder`, `cancelOrder`, `cancelAll`, `ping`. (Note: `pong` is server-only — clients do not send JSON `pong` frames; RFC 6455 control-frame pongs are handled automatically by the client's WebSocket library.)
 * **id** (string, required): Client-chosen correlation identifier. Must be unique across in-flight requests on the connection — see [In-Flight `id` Uniqueness](#in-flight-id-uniqueness) below.
 * **payload** (object, required for `createOrder` / `cancelOrder` / `cancelAll`): Operation-specific request body, byte-identical to the corresponding REST endpoint's request body.
 
