@@ -21,14 +21,10 @@ Different WebSocket channels surface different stages of this lifecycle, which i
 
 The matching engine and the on-chain settlement layer operate on slightly different snapshots of the world. The matching engine matches based on its in-memory view of orders, balances, and prices at the moment of the match. The on-chain settlement contract re-validates every fill against the **current** chain state when the settlement transaction lands — which may be a fraction of a second later, but enough time for some things to have changed.
 
-The most common reasons settlement fails:
+These are two reasons for settlement fails:
 
-- **Balance or margin moved.** A previous fill on the same account consumed collateral, or a position-size change pushed the account toward (or past) its margin requirements. The match was viable when the ME saw it; by the time the contract checked, it no longer was.
 - **Oracle price guard.** Each order signature commits to a price band (e.g. an IOC order's worst acceptable price). If the on-chain oracle has moved outside that band by settlement time, the contract refuses the fill rather than trade at an unacceptable price.
 - **Order expired.** Orders carry an `expiresAfter` deadline as part of their signature. If on-chain settlement runs after that deadline (e.g. because of network congestion or executor backlog), the contract refuses the fill.
-- **Signer permissions changed.** The signing wallet's on-chain permissions (e.g. removal from an account's authorized signers, or a scope change) were revoked between signing and settlement.
-- **Market state changed.** The market was paused, delisted, or had its parameters changed on-chain between match and settle.
-- **Nonce already used.** Rare — typically indicates a client-side bug retrying the same signed order rather than re-signing with a fresh nonce.
 
 All of these share a common pattern: the matching engine and the chain disagreed about the state of the world at slightly different points in time, and the chain — being the source of truth — wins the disagreement. The team's work to minimize busts focuses on shortening the time window where this disagreement can develop, and on catching more of the conditions in pre-match validation so the ME never matches a trade that the chain would later reject.
 
