@@ -1,12 +1,10 @@
 # Heartbeats
 
-Reya's WebSocket APIs (both [Market Data](websocket-api-reference.md) and [Order Entry](ws-exec-api-reference.md)) use **identical** heartbeat mechanics. This page is the single source of truth for how heartbeats work on both surfaces and what clients need to do — or, more accurately, what they don't need to do.
+Reya's WebSocket APIs (both [Info](websocket-api-reference.md) and [Order Entry](ws-exec-api-reference.md)) use **identical** heartbeat mechanics. This page is the single source of truth for how heartbeats work on both surfaces and what clients need to do — or, more accurately, what they don't need to do.
 
-## TL;DR
+For most clients, no action is required. Any standards-compliant WebSocket library handles heartbeats automatically at the protocol layer: the server periodically issues protocol-level pings, the client library replies with the corresponding pongs, and the connection stays alive without any application-level involvement. There is no ping handler to write, no pong to send, and no timer to track.
 
-**For most clients, the answer is "nothing."** Any standards-compliant WebSocket library on the client side handles heartbeats automatically at the protocol layer. You don't need to write a ping handler, you don't need to send pongs, you don't need to track timers. The server pings; your library auto-replies; the connection stays alive.
-
-The only situation where you'd need to do anything is if you're behind an aggressive corporate firewall or load balancer that closes "idle" connections faster than the server's own idle threshold — and even then, the fix is one line of WebSocket-library configuration, not application logic. See [Behind a strict middlebox?](#behind-a-strict-middlebox) below.
+The exception is clients running behind network middleboxes — corporate firewalls or load balancers that drop "idle" connections more aggressively than the server's own idle threshold. Even in those cases, the resolution is a single line of WebSocket-library configuration rather than any application-level work. See [Behind a strict middlebox?](#behind-a-strict-middlebox) for the specifics.
 
 ## The Two Layers — Why This Page Exists
 
@@ -141,9 +139,21 @@ The server can close a connection for several reasons; you'll see different clos
 | `1001` | Server going away (e.g. during a rolling deploy / pod restart) | Reconnect after a short backoff |
 | `1006` / `1011` / others | Idle timeout, server error, abrupt closure | Reconnect with exponential backoff |
 
-In all cases, the right pattern is the same: reconnect with backoff, replay your subscription state (for Market Data) or your in-flight order state (for Order Entry — but note in-flight orders are independently durable on-chain or in the matching engine, so you don't typically need to replay anything).
+In all cases, the right pattern is the same: reconnect with backoff, replay your subscription state (for Info) or your in-flight order state (for Order Entry — but note in-flight orders are independently durable on-chain or in the matching engine, so you don't typically need to replay anything).
 
-For the specific reconnection algorithm, see [Reconnection Pattern](websocket-api-reference.md#reconnection-pattern) in the Market Data API reference (the same algorithm applies to Order Entry).
+For the specific reconnection algorithm, see [Reconnection Pattern](reconnection-pattern.md) — the same algorithm applies to both the Info and Order Entry WebSocket APIs.
+
+### Server-Side Graceful Shutdown
+
+During a server-side rolling deploy or pod restart, the server closes connections with WS close code `1001 SERVER_SHUTTING_DOWN` after a drain period (currently 10 seconds) in which:
+
+1. The `/ready` health endpoint returns `503` so the load balancer stops sending new connections to this pod.
+2. In-flight requests are allowed to complete.
+3. Idle connections are closed first; busy connections wait for their in-flight handler to finish.
+
+After the drain timeout, any still-open connections are force-closed with `1001`. Clients should treat `1001` as a soft reconnect signal — the next pod is already accepting new connections.
+
+This applies to both the Info and Order Entry WebSocket APIs. The drain period matters more in practice for Order Entry (where an in-flight `createOrder` whose response is lost can still settle on-chain — see [Reconnection Pattern](reconnection-pattern.md#order-entry-websocket) for how to reconcile), but the close-code sequence is the same on both surfaces.
 
 ## Frequently Asked Questions
 

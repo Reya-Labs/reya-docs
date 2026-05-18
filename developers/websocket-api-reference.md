@@ -1,4 +1,4 @@
-# WebSocket Market Data API Reference
+# WebSocket Info API Reference
 
 ## Overview
 
@@ -74,9 +74,9 @@ The API uses a hierarchical channel structure with clear separation between diff
 
 ## Message Structure
 
-All WebSocket messages follow a standardized envelope structure:
+The Info surface uses one envelope shape for streamed channel data, plus a small set of control envelopes for subscription management. All envelopes share a `type` discriminator at the top level; the rest of the body is type-specific.
 
-### Base Message Envelope
+### Channel Data Envelope (Server → Client)
 
 ```json
 {
@@ -87,12 +87,65 @@ All WebSocket messages follow a standardized envelope structure:
 }
 ```
 
-### Message Components
-
 * **type**: Always `"channel_data"` for data updates
 * **timestamp**: Server timestamp in milliseconds
 * **channel**: Specific channel identifier
 * **data**: Channel-specific payload (object or array)
+
+### Subscribe Envelope (Client → Server)
+
+```json
+{
+  "type": "subscribe",
+  "channel": "/v2/markets/summary",
+  "id": "req123"
+}
+```
+
+The `id` is an optional client-chosen correlation marker. The server does not echo it back in the confirmation and does not enforce uniqueness across in-flight subscribes; it is purely for client-side bookkeeping.
+
+### Subscribed Confirmation (Server → Client)
+
+```json
+{
+  "type": "subscribed",
+  "channel": "/v2/markets/summary",
+  "contents": { /* optional initial data */ }
+}
+```
+
+The `contents` field carries an initial snapshot for channels that provide one (e.g. `/v2/market/{symbol}/depth`); otherwise it is omitted.
+
+### Unsubscribe Envelope (Client → Server)
+
+```json
+{
+  "type": "unsubscribe",
+  "channel": "/v2/markets/summary",
+  "id": "req123"
+}
+```
+
+### Unsubscribed Confirmation (Server → Client)
+
+```json
+{
+  "type": "unsubscribed",
+  "channel": "/v2/markets/summary"
+}
+```
+
+### Error Envelope (Server → Client)
+
+```json
+{
+  "type": "error",
+  "message": "Invalid channel",
+  "channel": "/v2/invalid/channel"
+}
+```
+
+The shape and the full set of possible `message` values are documented in [Error Catalog](#error-catalog) below.
 
 ### Heartbeats
 
@@ -956,6 +1009,29 @@ Same as above - see `/v2/market/{symbol}/spotExecutionBusts` channel for complet
 
 </details>
 
+## Error Catalog
+
+The server emits an `error` envelope when it cannot process a frame. The connection stays open; only the offending operation is rejected. Every error envelope shares this shape:
+
+```json
+{
+  "type": "error",
+  "message": "<human-readable description>",
+  "channel": "<channel path, present when applicable>"
+}
+```
+
+The `channel` field is included when the error relates to a specific channel (e.g. an invalid subscribe target). It is omitted for frame-level errors that aren't tied to a particular channel.
+
+The full set of `message` strings emitted by the server:
+
+| Message | When emitted | Client action |
+|---|---|---|
+| `Invalid JSON` | The frame body could not be parsed as JSON. | Fix the client serializer. |
+| `Invalid type` | The frame's `type` field is not one of `subscribe`, `unsubscribe`, `ping`. (`pong` is server-only — clients don't send JSON pong frames.) | Verify the request `type`. |
+| `Invalid channel name` | The subscribe / unsubscribe target does not match a known channel path or has malformed parameters (e.g. an invalid symbol or address). | Check the channel name against the [Channels Reference](#channels-reference) and the [Parameter Validation](#parameter-validation) rules. |
+| `Error while fetching snapshot from {channel}` | The server failed to compute the initial snapshot for a freshly-subscribed channel (typically a transient backend issue). The subscription is rolled back; the client may retry. | Retry the subscribe after a short backoff. If the problem persists, contact support with the channel name and timestamp. |
+
 ## Data Types & Schemas
 
 ### Enumeration Types
@@ -1028,120 +1104,31 @@ Same as above - see `/v2/market/{symbol}/spotExecutionBusts` channel for complet
 
 </details>
 
-## Error Messages
-
-The server emits an `error` envelope when it cannot process a frame. The connection stays open; only the offending operation is rejected. Every error envelope shares this shape:
-
-```json
-{
-  "type": "error",
-  "message": "<human-readable description>",
-  "channel": "<channel path, present when applicable>"
-}
-```
-
-The `channel` field is included when the error relates to a specific channel (e.g. an invalid subscribe target). It is omitted for frame-level errors that aren't tied to a particular channel.
-
-The full set of `message` strings emitted by the server:
-
-| Message | When emitted | Client action |
-|---|---|---|
-| `Invalid JSON` | The frame body could not be parsed as JSON. | Fix the client serializer. |
-| `Invalid type` | The frame's `type` field is not one of `subscribe`, `unsubscribe`, `ping`. (`pong` is server-only — clients don't send JSON pong frames.) | Verify the request `type`. |
-| `Invalid channel name` | The subscribe / unsubscribe target does not match a known channel path or has malformed parameters (e.g. an invalid symbol or address). | Check the channel name against the [Channels Reference](#channels-reference) and the [Parameter Validation](#parameter-validation) rules. |
-| `Error while fetching snapshot from {channel}` | The server failed to compute the initial snapshot for a freshly-subscribed channel (typically a transient backend issue). The subscription is rolled back; the client may retry. | Retry the subscribe after a short backoff. If the problem persists, contact support with the channel name and timestamp. |
-
 ## Connection Management
 
 ### Reconnection Pattern
 
-WebSocket connections drop for many reasons — network blips, server-side rolling deploys, intermediate proxy timeouts. A robust client must reconnect automatically and replay its subscription state. Recommended algorithm:
+The reconnection algorithm (exponential backoff with jitter) and the post-reconnect re-subscribe / REST-reconcile steps are documented in detail on the [Reconnection Pattern](reconnection-pattern.md) page. The algorithm is shared with the Order Entry WebSocket; surface-specific post-reconnect actions for both are covered there.
 
-1. **Connect with exponential backoff.** Start the retry delay at 100ms, double up to a 30s cap, and add jitter (±50% of the current delay) to avoid synchronized reconnect storms across clients.
-2. **Reset backoff on successful connection.** A successful WS open returns the delay to its starting value.
-3. **Re-subscribe to every channel the client had active before the disconnect.** The server holds no per-connection subscription state across disconnects.
-4. **Reconcile any missed events.** Channels are best-effort streams — between disconnect and re-subscribe the client may miss order updates, executions, or balance changes. After reconnect, refresh from REST (e.g. `GET /v2/wallet/{address}/openOrders`, `GET /v2/wallet/{address}/perpExecutions`) before trusting cached state.
+### Graceful Shutdown
 
-Pseudocode:
+The server's drain-and-close behavior on rolling deploys (10s drain, `/ready` returns `503`, idle connections closed first, `1001 SERVER_SHUTTING_DOWN` on close) is shared with the Order Entry WebSocket and documented in [Server-Side Graceful Shutdown](heartbeats.md#server-side-graceful-shutdown).
 
-```text
-activeSubscriptions = []   # tracked across reconnects
-backoffMs = 100
+## Python SDK Example
 
-loop forever:
-  try:
-    ws = connect(wsUrl)
-    backoffMs = 100                              # reset on success
+Worked examples are included in the [Reya Python SDK](https://github.com/Reya-Labs/reya-python-sdk) under [`examples/websocket/`](https://github.com/Reya-Labs/reya-python-sdk/tree/main/examples/websocket). The directory is split by market type:
 
-    # Replay subscription state
-    for channel in activeSubscriptions:
-      ws.send({ type: "subscribe", channel })
+* [`examples/websocket/perps/market_monitoring.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/perps/market_monitoring.py) — subscribe to perp market summaries
+* [`examples/websocket/perps/prices_monitoring.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/perps/prices_monitoring.py) — subscribe to the price stream
+* [`examples/websocket/perps/wallet_monitoring.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/perps/wallet_monitoring.py) — subscribe to wallet-scoped channels (positions, order changes, executions, balances)
+* [`examples/websocket/spot/spot_executions.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/spot/spot_executions.py) — subscribe to spot execution streams
+* [`examples/websocket/spot/depth_market_maker.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/spot/depth_market_maker.py) — bootstrap state via REST, then drive a market-maker loop off of `depth`, `accountBalances`, `openOrders`, and `spotExecutions` updates
 
-    # After reconnect, REST-reconcile any state that may have moved while disconnected
-    reconcileFromRest()
+Run any of them with:
 
-    runUntilDisconnect(ws)
-  catch:
-    sleep(backoffMs + jitter(-backoffMs / 2, backoffMs / 2))
-    backoffMs = min(backoffMs * 2, 30000)
+```bash
+poetry shell
+python -m examples.websocket.perps.market_monitoring  # for example
 ```
 
-When subscribing during `runUntilDisconnect`, add the channel to `activeSubscriptions` before sending; when unsubscribing, remove it after the `unsubscribed` confirmation arrives.
-
-### Connection Best Practices
-
-1. **Manage Subscriptions**: Track active subscriptions client-side for reconnect replay.
-2. **Handle Backpressure**: Process messages efficiently to avoid buffer overflow.
-3. **Monitor Latency**: Track message timestamps for performance monitoring.
-4. **Validate Messages**: Verify message structure and required fields.
-
-### Control Messages
-
-#### Subscribe Message (Client → Server)
-
-```json
-{
-  "type": "subscribe",
-  "channel": "/v2/markets/summary",
-  "id": "req123"
-}
-```
-
-#### Subscribed Confirmation (Server → Client)
-
-```json
-{
-  "type": "subscribed",
-  "channel": "/v2/markets/summary",
-  "contents": { /* optional initial data */ }
-}
-```
-
-#### Unsubscribe Message (Client → Server)
-
-```json
-{
-  "type": "unsubscribe",
-  "channel": "/v2/markets/summary",
-  "id": "req123"
-}
-```
-
-#### Unsubscribed Confirmation (Server → Client)
-
-```json
-{
-  "type": "unsubscribed",
-  "channel": "/v2/markets/summary"
-}
-```
-
-#### Error Message (Server → Client)
-
-```json
-{
-  "type": "error",
-  "message": "Invalid channel",
-  "channel": "/v2/invalid/channel"
-}
-```
+See each script's docstring for prerequisites (`.env` setup, funded test accounts on cronos).

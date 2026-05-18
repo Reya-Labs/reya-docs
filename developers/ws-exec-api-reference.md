@@ -6,7 +6,7 @@ The Reya DEX WebSocket Order Entry API v2 is a request/response surface for plac
 
 Payload bodies are reused verbatim from REST. Request and response envelopes are id-correlated; the server replies on the same connection with a frame carrying the same `id` the client sent.
 
-This surface is **order-entry only**. For real-time market data, position updates, and fill streaming, see the [WebSocket Market Data API Reference](websocket-api-reference.md). The recommended Market Maker integration runs both connections in parallel: this surface for order entry, the streaming surface for read-side fanout.
+This surface is **order-entry only**. For real-time market data, position updates, and fill streaming, see the [WebSocket Info API Reference](websocket-api-reference.md). The recommended Market Maker integration runs both connections in parallel: this surface for order entry, the streaming surface for read-side fanout.
 
 ## Server Endpoints
 
@@ -38,7 +38,7 @@ A consequence of per-frame authentication is that a single WebSocket connection 
 
 **Rate limits are keyed off the signing wallet, not the connection.** Sending `createOrder` / `cancelOrder` / `cancelAll` over WebSocket Order Entry counts toward the same per-wallet bucket as sending the same operation over REST — choosing the transport doesn't change the limits. See [Rate Limits](rate-limits.md) for the full picture (default limits, tiers, open-order caps, and recommended client patterns).
 
-## Message Envelope
+## Message Structure
 
 All WebSocket messages follow a standardized envelope structure with a `type` discriminator and a client-chosen `id` for correlation.
 
@@ -107,6 +107,10 @@ The server emits a top-level `error` envelope when it cannot parse a request at 
 ```
 
 * **id** is present when the offending request carried one (e.g. for `DUPLICATE_REQUEST_ID`); absent for frame-level errors (e.g. unparseable JSON) where the server has no id to echo.
+
+### Heartbeats
+
+The heartbeat / connection-liveness mechanism is documented in detail on its own page — see [Heartbeats](heartbeats.md). Short version: protocol-level pings handle liveness automatically, no application-level code is required on the client.
 
 ## Operations Reference
 
@@ -420,41 +424,13 @@ For the complete enumeration of `RequestErrorCode` (per-operation errors) and `W
 
 ## Connection Management
 
-### Heartbeats
+### Reconnection Pattern
 
-The heartbeat / connection-liveness mechanism is identical across both WebSocket surfaces and documented in detail on its own page: see [Heartbeats](heartbeats.md). Short version: protocol-level pings handle liveness automatically — no application-level code is required on the client.
+The reconnection algorithm (exponential backoff with jitter) and the post-reconnect verify-in-flight-via-REST steps are documented in detail on the [Reconnection Pattern](reconnection-pattern.md) page. The algorithm is shared with the Info WebSocket; surface-specific post-reconnect actions for both are covered there.
 
 ### Graceful Shutdown
 
-During a server-side rolling deploy or pod restart, the server closes connections with WS close code `1001 SERVER_SHUTTING_DOWN` after a drain period (currently 10 seconds) in which:
-
-1. The `/ready` health endpoint returns `503` so the load balancer stops sending new connections to this pod.
-2. In-flight requests are allowed to complete.
-3. Idle connections are closed first; busy connections wait for their in-flight handler to finish.
-
-After the drain timeout, any still-open connections are force-closed with `1001`. Clients should treat `1001` as a soft reconnect signal.
-
-### Reconnection Pattern
-
-Closing the WebSocket has **zero persistent side effects** on the order book — an in-flight `createOrder` whose response cannot be delivered still settles on-chain (same as a REST timeout). On reconnect, clients should:
-
-1. Re-establish the WebSocket connection with exponential backoff (start at 100ms, double up to a 30s cap, with jitter).
-2. Resume normal operation. There is no subscription state to replay (unlike the market-data WebSocket) and no session to restore.
-3. For any request whose response was not received before disconnect, verify outcome via REST `GET /v2/wallet/{address}/openOrders` and `GET /v2/wallet/{address}/perpExecutions` before resubmitting — otherwise you risk a duplicate order with a fresh `clientOrderId`.
-
-Pseudocode:
-
-```text
-backoffMs = 100
-loop:
-  try:
-    connect()
-    backoffMs = 100         # reset on success
-    runUntilDisconnect()
-  catch (anyError):
-    sleep(backoffMs + jitter(0..backoffMs/2))
-    backoffMs = min(backoffMs * 2, 30000)
-```
+The server's drain-and-close behavior on rolling deploys (10s drain, `/ready` returns `503`, idle connections closed first, `1001 SERVER_SHUTTING_DOWN` on close) is shared with the Info WebSocket and documented in [Server-Side Graceful Shutdown](heartbeats.md#server-side-graceful-shutdown).
 
 ### In-Flight `id` Uniqueness
 
@@ -464,7 +440,7 @@ In practice, clients should generate a fresh `id` for every request (e.g. UUIDv4
 
 ### Idempotency (`clientOrderId`)
 
-For `createOrder`, the optional `clientOrderId` field is echoed back unchanged in the response and in any subsequent order-update events on the market-data WebSocket. Use it for client-side correlation independent of the server-issued `orderId` — particularly useful when the response envelope is lost mid-flight and the client must reconcile state from market-data updates after reconnect.
+For `createOrder`, the optional `clientOrderId` field is echoed back unchanged in the response and in any subsequent order-update events on the Info WebSocket. Use it for client-side correlation independent of the server-issued `orderId` — particularly useful when the response envelope is lost mid-flight and the client must reconcile state from Info-WebSocket updates after reconnect.
 
 `clientOrderId` does not provide server-side deduplication: two requests with the same `clientOrderId` will be treated as two separate orders.
 
@@ -493,7 +469,7 @@ The WebSocket Order Entry surface is functionally equivalent to the correspondin
 **When to use which:**
 
 * **REST** — One-off requests, low frequency, simpler client integration, no need to maintain a long-lived connection.
-* **WebSocket Order Entry** — High-frequency order submission, lower per-request overhead (no TLS handshake per request), latency-sensitive integrations. Recommended for Market Makers running together with the [WebSocket Market Data API](websocket-api-reference.md).
+* **WebSocket Order Entry** — High-frequency order submission, lower per-request overhead (no TLS handshake per request), latency-sensitive integrations. Recommended for Market Makers running together with the [WebSocket Info API](websocket-api-reference.md).
 
 ## Python SDK Example
 
