@@ -54,7 +54,7 @@ All WebSocket messages follow a standardized envelope structure with a `type` di
 
 #### Components
 
-* **type** (string, required): One of `createOrder`, `cancelOrder`, `cancelAll`, `ping`. (Note: `pong` is server-only — clients do not send JSON `pong` frames; RFC 6455 control-frame pongs are handled automatically by the client's WebSocket library.)
+* **type** (string, required): One of `createOrder`, `cancelOrder`, `cancelAll`, `ping`. (`pong` is server-only — see [Heartbeats](heartbeats.md).)
 * **id** (string, required): Client-chosen correlation identifier. Must be unique across in-flight requests on the connection — see [In-Flight `id` Uniqueness](#in-flight-id-uniqueness) below.
 * **payload** (object, required for `createOrder` / `cancelOrder` / `cancelAll`): Operation-specific request body, byte-identical to the corresponding REST endpoint's request body.
 
@@ -90,32 +90,6 @@ or, on failure:
 * **ok** (boolean, required): `true` for success, `false` for failure.
 * **payload** (object, required when `ok = true`, forbidden when `ok = false`): Operation-specific success body, byte-identical to the REST `200` response body.
 * **error** (object, required when `ok = false`, forbidden when `ok = true`): See [Error Catalog](#error-catalog) for the shape and possible codes.
-
-### Heartbeat Envelopes
-
-Server-side liveness is handled at the WebSocket protocol layer (RFC 6455 control-frame pings) — invisible to the application layer. Clients do not need to handle any JSON ping frames to stay connected. See [Heartbeat Semantics](#heartbeat-semantics).
-
-The only application-level ping/pong is an *optional* client-initiated probe.
-
-#### Client Ping (Client → Server, optional liveness probe)
-
-```json
-{
-  "type": "ping",
-  "id": "probe-001"
-}
-```
-
-#### Server Pong (Server → Client, reply to client ping)
-
-```json
-{
-  "type": "pong",
-  "id": "probe-001"
-}
-```
-
-The server echoes the optional `id` back to the client. Useful for application-level RTT measurement or correlation.
 
 ### Top-Level Error Envelope (Server → Client)
 
@@ -365,7 +339,7 @@ The server emits a top-level `error` envelope when it cannot parse a request at 
 
 ### `ping` / `pong`
 
-**Purpose**: Optional client-initiated application-level liveness/RTT probe. The client sends `{type:"ping", id?}`; the server replies with `{type:"pong", id?}` echoing the optional `id`. See [Heartbeat Envelopes](#heartbeat-envelopes) for the wire shape and [Heartbeat Semantics](#heartbeat-semantics) for the connection-level liveness mechanism (which does not depend on this operation).
+**Purpose**: Optional client-initiated application-level liveness/RTT probe. The client sends `{type:"ping", id?}`; the server replies with `{type:"pong", id?}` echoing the optional `id`. See [Heartbeats](heartbeats.md) for the full description — when to use it, when not to, and how it relates to the protocol-level liveness mechanism that keeps the connection alive automatically.
 
 ## Error Catalog
 
@@ -446,13 +420,9 @@ For the complete enumeration of `RequestErrorCode` (per-operation errors) and `W
 
 ## Connection Management
 
-### Heartbeat Semantics
+### Heartbeats
 
-The server uses WebSocket protocol-level pings (RFC 6455 control frames) for liveness detection, the same mechanism as the [Market Data WebSocket API](websocket-api-reference.md). Any standards-compliant client WebSocket library replies with control-frame pongs automatically — **no application-level code is required on the client**. If no inbound traffic is received within `idleTimeout` (120 seconds), the server closes the connection.
-
-Clients sitting behind aggressive corporate firewalls or load balancers should configure their WebSocket library to send client→server protocol pings periodically (e.g. `ping_interval=20` in Python's `websocket-client`, or `setInterval(() => ws.ping(), 20_000)` in Node's `ws`) so intermediate hops see traffic. With `sendPings: true` on the server side, the server also pings each client periodically; most setups stay alive on the server pings alone.
-
-Clients may *optionally* send `{type:"ping", id?}` JSON to request an explicit application-level probe — the server replies with `{type:"pong", id?}` echoing the `id`. This is independent of the protocol-level heartbeat and useful only for RTT measurement or application-side correlation.
+The heartbeat / connection-liveness mechanism is identical across both WebSocket surfaces and documented in detail on its own page: see [Heartbeats](heartbeats.md). Short version: protocol-level pings handle liveness automatically — no application-level code is required on the client.
 
 ### Graceful Shutdown
 
@@ -515,7 +485,7 @@ The WebSocket Order Entry surface is functionally equivalent to the correspondin
 | Success / failure | HTTP `200` vs `400` / `500` | `ok: true` vs `ok: false` inside the frame |
 | Error body | `RequestError` | Same — embedded as `error` on `ok: false` |
 | Correlation | HTTP request/response pairing | Client-supplied `id` field |
-| Heartbeat | n/a (stateless) | RFC 6455 protocol-level pings + 120s `idleTimeout` (same as the Market Data WS) |
+| Heartbeat | n/a (stateless) | Protocol-level, automatic — see [Heartbeats](heartbeats.md) |
 | Auth | EIP-712 signature in body | Same EIP-712 signature in same body |
 | Idempotency | `clientOrderId` echoed | Same |
 | Connection | Per-request | Persistent, multiplexed |

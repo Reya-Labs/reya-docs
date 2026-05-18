@@ -94,27 +94,9 @@ All WebSocket messages follow a standardized envelope structure:
 * **channel**: Specific channel identifier
 * **data**: Channel-specific payload (object or array)
 
-### Heartbeat & Liveness
+### Heartbeats
 
-The server uses WebSocket protocol-level pings (RFC 6455 control frames) for liveness detection. Any standards-compliant client WebSocket library replies with control-frame pongs automatically — **no application-level code is required on the client**. If no traffic is received within `idleTimeout` (120 seconds), the server closes the connection.
-
-Clients may *optionally* send an application-level JSON ping for round-trip checks or correlation:
-
-```json
-{
-  "type": "ping",
-  "id": "probe-001"
-}
-```
-
-The server replies with a pong echoing the optional `id`:
-
-```json
-{
-  "type": "pong",
-  "id": "probe-001"
-}
-```
+The heartbeat / connection-liveness mechanism is documented in detail on its own page — see [Heartbeats](heartbeats.md). Short version: protocol-level pings handle liveness automatically, no application-level code is required on the client.
 
 ## Channels Reference
 
@@ -1070,10 +1052,6 @@ The full set of `message` strings emitted by the server:
 | `Error while fetching snapshot from {channel}` | The server failed to compute the initial snapshot for a freshly-subscribed channel (typically a transient backend issue). The subscription is rolled back; the client may retry. | Retry the subscribe after a short backoff. If the problem persists, contact support with the channel name and timestamp. |
 
 ## Connection Management
-
-### Heartbeat Management
-
-The server uses RFC 6455 protocol-level pings (auto-handled by the client's WebSocket library) and closes the connection after `idleTimeout` (120s) of silence. See [Heartbeat & Liveness](#heartbeat--liveness) for the full description and the optional client-initiated JSON probe pattern.
 
 ### Reconnection Pattern
 
