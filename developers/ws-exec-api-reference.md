@@ -426,7 +426,12 @@ For the complete enumeration of `RequestErrorCode` (per-operation errors) and `W
 
 ### Reconnection Pattern
 
-The reconnection algorithm (exponential backoff with jitter) and the post-reconnect verify-in-flight-via-REST steps are documented in detail on the [Reconnection Pattern](reconnection-pattern.md) page. The algorithm is shared with the Info WebSocket; surface-specific post-reconnect actions for both are covered there.
+Reconnect with the usual exponential-backoff-with-jitter pattern any robust WebSocket client should use. The Reya-specific bits are:
+
+1. **No subscription state to replay.** There is no session-bound identity to restore — the next request authenticates itself via its EIP-712 signature just like the first one did.
+2. **Verify in-flight requests via REST before resubmitting.** Closing the WebSocket has zero persistent side effects on the order book itself — an in-flight `createOrder` whose response cannot be delivered still settles on-chain (same as a REST timeout). For any request whose response was not received before disconnect, check `GET /v2/wallet/{address}/openOrders` and `GET /v2/wallet/{address}/perpExecutions` to confirm outcome before retrying — otherwise you risk a duplicate order. See [Idempotency (`clientOrderId`)](#idempotency-clientorderid) for safe retry correlation.
+
+For the meaning of WS close codes you'll see on `onclose` (`1000`, `1001`, `1006`, etc.), see [What Happens When the Server Closes the Connection](heartbeats.md#what-happens-when-the-server-closes-the-connection).
 
 ### Graceful Shutdown
 

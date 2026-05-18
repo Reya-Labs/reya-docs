@@ -141,7 +141,7 @@ The server can close a connection for several reasons; you'll see different clos
 
 In all cases, the right pattern is the same: reconnect with backoff, replay your subscription state (for Info) or your in-flight order state (for Order Entry — but note in-flight orders are independently durable on-chain or in the matching engine, so you don't typically need to replay anything).
 
-For the specific reconnection algorithm, see [Reconnection Pattern](reconnection-pattern.md) — the same algorithm applies to both the Info and Order Entry WebSocket APIs.
+For the surface-specific post-reconnect steps, see [Reconnection Pattern](websocket-api-reference.md#reconnection-pattern) on the Info WebSocket reference and [Reconnection Pattern](ws-exec-api-reference.md#reconnection-pattern) on the Order Entry WebSocket reference.
 
 ### Server-Side Graceful Shutdown
 
@@ -153,7 +153,7 @@ During a server-side rolling deploy or pod restart, the server closes connection
 
 After the drain timeout, any still-open connections are force-closed with `1001`. Clients should treat `1001` as a soft reconnect signal — the next pod is already accepting new connections.
 
-This applies to both the Info and Order Entry WebSocket APIs. The drain period matters more in practice for Order Entry (where an in-flight `createOrder` whose response is lost can still settle on-chain — see [Reconnection Pattern](reconnection-pattern.md#order-entry-websocket) for how to reconcile), but the close-code sequence is the same on both surfaces.
+This applies to both the Info and Order Entry WebSocket APIs. The drain period matters more in practice for Order Entry (where an in-flight `createOrder` whose response is lost can still settle on-chain — see [Reconnection Pattern](ws-exec-api-reference.md#reconnection-pattern) for how to reconcile), but the close-code sequence is the same on both surfaces.
 
 ## Frequently Asked Questions
 

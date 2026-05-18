@@ -1108,7 +1108,12 @@ The full set of `message` strings emitted by the server:
 
 ### Reconnection Pattern
 
-The reconnection algorithm (exponential backoff with jitter) and the post-reconnect re-subscribe / REST-reconcile steps are documented in detail on the [Reconnection Pattern](reconnection-pattern.md) page. The algorithm is shared with the Order Entry WebSocket; surface-specific post-reconnect actions for both are covered there.
+Reconnect with the usual exponential-backoff-with-jitter pattern any robust WebSocket client should use. The Reya-specific bits are:
+
+1. **Re-subscribe to every channel.** The server holds no per-connection subscription state across disconnects — a client that had three channels subscribed before the drop has zero subscribed after the new connection opens. Track active subscriptions client-side and replay them on reconnect.
+2. **Reconcile missed events from REST.** Channels are best-effort streams. Between disconnect and re-subscribe the client may miss order updates, executions, or balance changes. After reconnect, refresh from REST (e.g. `GET /v2/wallet/{address}/openOrders`, `GET /v2/wallet/{address}/perpExecutions`) before trusting cached state.
+
+For the meaning of WS close codes you'll see on `onclose` (`1000`, `1001`, `1006`, etc.), see [What Happens When the Server Closes the Connection](heartbeats.md#what-happens-when-the-server-closes-the-connection).
 
 ### Graceful Shutdown
 
