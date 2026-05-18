@@ -1,8 +1,10 @@
-# WebSocket API Reference
+# WebSocket Info API Reference
 
 ## Overview
 
 The Reya DEX Trading WebSocket API v2 provides real-time streaming data for decentralized exchange operations on the Reya Network. This version offers user-friendly data structures with human-readable formats, removing blockchain-specific details while maintaining comprehensive trading functionality.
+
+For placing and cancelling orders over WebSocket, see [WebSocket Order Entry API Reference](ws-exec-api-reference.md). The recommended Market Maker integration runs both connections in parallel: that surface for order entry, this surface for read-side fanout.
 
 ## Server Endpoints
 
@@ -72,9 +74,9 @@ The API uses a hierarchical channel structure with clear separation between diff
 
 ## Message Structure
 
-All WebSocket messages follow a standardized envelope structure:
+The Info surface uses one envelope shape for streamed channel data, plus a small set of control envelopes for subscription management. All envelopes share a `type` discriminator at the top level; the rest of the body is type-specific.
 
-### Base Message Envelope
+### Channel Data Envelope (Server → Client)
 
 ```json
 {
@@ -85,32 +87,69 @@ All WebSocket messages follow a standardized envelope structure:
 }
 ```
 
-### Message Components
-
 * **type**: Always `"channel_data"` for data updates
 * **timestamp**: Server timestamp in milliseconds
 * **channel**: Specific channel identifier
 * **data**: Channel-specific payload (object or array)
 
-### Heartbeat Messages
-
-#### Ping Message (Server → Client)
+### Subscribe Envelope (Client → Server)
 
 ```json
 {
-  "type": "ping",
-  "timestamp": 1747927089946
+  "type": "subscribe",
+  "channel": "/v2/markets/summary",
+  "id": "req123"
 }
 ```
 
-#### Pong Message (Client → Server)
+The `id` is an optional client-chosen correlation marker. The server does not echo it back in the confirmation and does not enforce uniqueness across in-flight subscribes; it is purely for client-side bookkeeping.
+
+### Subscribed Confirmation (Server → Client)
 
 ```json
 {
-  "type": "pong",
-  "timestamp": 1747927089946
+  "type": "subscribed",
+  "channel": "/v2/markets/summary",
+  "contents": { /* optional initial data */ }
 }
 ```
+
+The `contents` field carries an initial snapshot for channels that provide one (e.g. `/v2/market/{symbol}/depth`); otherwise it is omitted.
+
+### Unsubscribe Envelope (Client → Server)
+
+```json
+{
+  "type": "unsubscribe",
+  "channel": "/v2/markets/summary",
+  "id": "req123"
+}
+```
+
+### Unsubscribed Confirmation (Server → Client)
+
+```json
+{
+  "type": "unsubscribed",
+  "channel": "/v2/markets/summary"
+}
+```
+
+### Error Envelope (Server → Client)
+
+```json
+{
+  "type": "error",
+  "message": "Invalid channel",
+  "channel": "/v2/invalid/channel"
+}
+```
+
+The shape and the full set of possible `message` values are documented in [Error Catalog](#error-catalog) below.
+
+### Heartbeats
+
+The heartbeat / connection-liveness mechanism is documented in detail on its own page — see [Heartbeats](heartbeats.md). Short version: protocol-level pings handle liveness automatically, no application-level code is required on the client.
 
 ## Channels Reference
 
@@ -559,7 +598,8 @@ Same as above - see `/v2/prices` channel for complete field definitions.
       "price": "2500.00",
       "fee": "0.0",
       "type": "ORDER_MATCH",
-      "timestamp": 1747927089946
+      "timestamp": 1747927089946,
+      "sequenceNumber": 152954
     }
   ]
 }
@@ -571,16 +611,17 @@ Same as above - see `/v2/prices` channel for complete field definitions.
 
 * `exchangeId` (integer, optional): Exchange identifier
 * `symbol` (string): Trading symbol
-* `accountId` (integer): Account identifier (taker)
-* `makerAccountId` (integer): Maker account ID (counterparty)
-* `orderId` (string, optional): Order ID for the taker
-* `makerOrderId` (string, optional): Order ID for the maker
-* `qty` (string): Execution quantity
-* `side` (Side): Execution side (B=Buy, A=Sell)
-* `price` (string): Execution price
-* `fee` (string): Execution fee
+* `accountId` (integer): Account identifier of the taker side of the trade
+* `makerAccountId` (integer): Maker account ID (counterparty providing liquidity)
+* `orderId` (string, optional): Taker-side order ID. Absent when the taker order was filled and removed in the same matching round.
+* `makerOrderId` (string, optional): Maker-side order ID. Absent when the maker order was fully filled in this execution.
+* `qty` (string): Execution quantity in base asset units
+* `side` (Side): Taker side (B=Buy, A=Sell). The maker is always the opposite side.
+* `price` (string): Execution price in quote-per-base units
+* `fee` (string): Fee charged to the taker, in the market's fee asset
 * `type` (ExecutionType): Execution type (ORDER\_MATCH, LIQUIDATION, ADL)
-* `timestamp` (integer): Execution timestamp (milliseconds)
+* `timestamp` (integer): Execution timestamp (milliseconds since epoch)
+* `sequenceNumber` (integer): Monotonic per-execution sequence number across the spot matching engine; increases by 1 for every spot execution on Reya. Use this to dedup and gap-detect on the consumer side after a reconnect.
 
 </details>
 
@@ -630,17 +671,19 @@ Same as above - see `/v2/prices` channel for complete field definitions.
 
 <summary><strong>Data Type - SpotExecutionBust</strong></summary>
 
+A bust is emitted when the matching engine matched two orders but the on-chain settlement attempt reverted (e.g. insufficient balance, signature staleness, market paused). The match is rolled back; both orders are released back to their owners' state. See [Trade Busts](trade-busts.md) for the full trade lifecycle, when busts happen, and how clients should handle them.
+
 * `symbol` (string): Trading symbol
-* `accountId` (integer): Account identifier (taker)
+* `accountId` (integer): Account identifier of the taker side of the failed trade
 * `exchangeId` (integer): Exchange identifier
 * `makerAccountId` (integer): Maker account ID (counterparty)
-* `orderId` (string): Order ID for the taker
-* `makerOrderId` (string): Order ID for the maker
-* `qty` (string): Failed base quantity
-* `side` (Side): Execution side (B=Buy, A=Sell)
-* `price` (string): Execution price
-* `reason` (string): Hex-encoded revert reason bytes
-* `timestamp` (integer): Block timestamp (milliseconds)
+* `orderId` (string): Taker-side order ID
+* `makerOrderId` (string): Maker-side order ID
+* `qty` (string): Failed base quantity in base asset units
+* `side` (Side): Taker side (B=Buy, A=Sell)
+* `price` (string): Price at which the failed match was attempted
+* `reason` (string): Hex-encoded revert reason bytes from the on-chain settlement attempt. Clients can ABI-decode this against the OrdersGateway error ABI to recover the specific revert (e.g. `InsufficientBalance`, `UnauthorizedSigner`). The first 4 bytes are the selector; subsequent bytes are the ABI-encoded args.
+* `timestamp` (integer): Block timestamp of the failed settlement (milliseconds since epoch). This is the chain-side timestamp, not the original off-chain match timestamp.
 
 </details>
 
@@ -855,7 +898,8 @@ Same as above - see `/v2/market/{symbol}/perpExecutions` channel for complete fi
       "price": "2500.00",
       "fee": "0.0",
       "type": "ORDER_MATCH",
-      "timestamp": 1747927089946
+      "timestamp": 1747927089946,
+      "sequenceNumber": 152954
     }
   ]
 }
@@ -965,6 +1009,29 @@ Same as above - see `/v2/market/{symbol}/spotExecutionBusts` channel for complet
 
 </details>
 
+## Error Catalog
+
+The server emits an `error` envelope when it cannot process a frame. The connection stays open; only the offending operation is rejected. Every error envelope shares this shape:
+
+```json
+{
+  "type": "error",
+  "message": "<human-readable description>",
+  "channel": "<channel path, present when applicable>"
+}
+```
+
+The `channel` field is included when the error relates to a specific channel (e.g. an invalid subscribe target). It is omitted for frame-level errors that aren't tied to a particular channel.
+
+The full set of `message` strings emitted by the server:
+
+| Message | When emitted | Client action |
+|---|---|---|
+| `Invalid JSON` | The frame body could not be parsed as JSON. | Fix the client serializer. |
+| `Invalid type` | The frame's `type` field is not one of `subscribe`, `unsubscribe`, `ping`. (`pong` is server-only — clients don't send JSON pong frames.) | Verify the request `type`. |
+| `Invalid channel name` | The subscribe / unsubscribe target does not match a known channel path or has malformed parameters (e.g. an invalid symbol or address). | Check the channel name against the [Channels Reference](#channels-reference) and the [Parameter Validation](#parameter-validation) rules. |
+| `Error while fetching snapshot from {channel}` | The server failed to compute the initial snapshot for a freshly-subscribed channel (typically a transient backend issue). The subscription is rolled back; the client may retry. | Retry the subscribe after a short backoff. If the problem persists, contact support with the channel name and timestamp. |
+
 ## Data Types & Schemas
 
 ### Enumeration Types
@@ -1039,69 +1106,34 @@ Same as above - see `/v2/market/{symbol}/spotExecutionBusts` channel for complet
 
 ## Connection Management
 
-### Heartbeat Management
+### Reconnection Pattern
 
-The API implements a ping/pong heartbeat mechanism:
+Reconnect with the usual exponential-backoff-with-jitter pattern any robust WebSocket client should use. The Reya-specific bits are:
 
-1. **Server Ping**: Server sends periodic ping messages
-2. **Client Pong**: Client must respond with pong messages
-3. **Connection Health**: Failure to respond may result in disconnection
+1. **Re-subscribe to every channel.** The server holds no per-connection subscription state across disconnects — a client that had three channels subscribed before the drop has zero subscribed after the new connection opens. Track active subscriptions client-side and replay them on reconnect.
+2. **Reconcile missed events from REST.** Channels are best-effort streams. Between disconnect and re-subscribe the client may miss order updates, executions, or balance changes. After reconnect, refresh from REST (e.g. `GET /v2/wallet/{address}/openOrders`, `GET /v2/wallet/{address}/perpExecutions`) before trusting cached state.
 
-### Connection Best Practices
+For the meaning of WS close codes you'll see on `onclose` (`1000`, `1001`, `1006`, etc.), see [What Happens When the Server Closes the Connection](heartbeats.md#what-happens-when-the-server-closes-the-connection).
 
-1. **Implement Reconnection Logic**: Handle connection drops gracefully
-2. **Manage Subscriptions**: Track active subscriptions for reconnection
-3. **Handle Backpressure**: Process messages efficiently to avoid buffer overflow
-4. **Monitor Latency**: Track message timestamps for performance monitoring
-5. **Validate Messages**: Verify message structure and required fields
+### Graceful Shutdown
 
-### Control Messages
+The server's drain-and-close behavior on rolling deploys (10s drain, `/ready` returns `503`, idle connections closed first, `1001 SERVER_SHUTTING_DOWN` on close) is shared with the Order Entry WebSocket and documented in [Server-Side Graceful Shutdown](heartbeats.md#server-side-graceful-shutdown).
 
-#### Subscribe Message (Client → Server)
+## Python SDK Example
 
-```json
-{
-  "type": "subscribe",
-  "channel": "/v2/markets/summary",
-  "id": "req123"
-}
+Worked examples are included in the [Reya Python SDK](https://github.com/Reya-Labs/reya-python-sdk) under [`examples/websocket/`](https://github.com/Reya-Labs/reya-python-sdk/tree/main/examples/websocket). The directory is split by market type:
+
+* [`examples/websocket/perps/market_monitoring.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/perps/market_monitoring.py) — subscribe to perp market summaries
+* [`examples/websocket/perps/prices_monitoring.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/perps/prices_monitoring.py) — subscribe to the price stream
+* [`examples/websocket/perps/wallet_monitoring.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/perps/wallet_monitoring.py) — subscribe to wallet-scoped channels (positions, order changes, executions, balances)
+* [`examples/websocket/spot/spot_executions.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/spot/spot_executions.py) — subscribe to spot execution streams
+* [`examples/websocket/spot/depth_market_maker.py`](https://github.com/Reya-Labs/reya-python-sdk/blob/main/examples/websocket/spot/depth_market_maker.py) — bootstrap state via REST, then drive a market-maker loop off of `depth`, `accountBalances`, `openOrders`, and `spotExecutions` updates
+
+Run any of them with:
+
+```bash
+poetry shell
+python -m examples.websocket.perps.market_monitoring  # for example
 ```
 
-#### Subscribed Confirmation (Server → Client)
-
-```json
-{
-  "type": "subscribed",
-  "channel": "/v2/markets/summary",
-  "contents": { /* optional initial data */ }
-}
-```
-
-#### Unsubscribe Message (Client → Server)
-
-```json
-{
-  "type": "unsubscribe",
-  "channel": "/v2/markets/summary",
-  "id": "req123"
-}
-```
-
-#### Unsubscribed Confirmation (Server → Client)
-
-```json
-{
-  "type": "unsubscribed",
-  "channel": "/v2/markets/summary"
-}
-```
-
-#### Error Message (Server → Client)
-
-```json
-{
-  "type": "error",
-  "message": "Invalid channel",
-  "channel": "/v2/invalid/channel"
-}
-```
+See each script's docstring for prerequisites (`.env` setup, funded test accounts on cronos).
